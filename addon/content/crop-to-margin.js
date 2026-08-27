@@ -712,8 +712,7 @@ var CropToMargin = {
 			let attached = 0;
 			for (let view of this.getViews(reader)) {
 				try {
-					this.attachView(state, view, crop);
-					attached++;
+					if (this.attachView(state, view, crop)) attached++;
 				}
 				catch (e) {
 					this.logError(e);
@@ -784,10 +783,14 @@ var CropToMargin = {
 				continue;
 			}
 			if (sample) samples.push(sample);
+			else this.trace('page ' + (index + 1) + ' had no measurable ink');
 		}
 		this.log('measured ' + samples.length + '/' + indexes.length + ' sampled pages of '
 			+ numPages + ' (' + failures + ' failed)');
-		if (samples.length < 2) return null;
+		if (samples.length < 2) {
+			this.log('too few pages measured (' + samples.length + ') to agree on a crop');
+			return null;
+		}
 		return this.consensus(samples, numPages);
 	},
 
@@ -1035,7 +1038,11 @@ var CropToMargin = {
 		let mirrorMargins = !!this.getPref('mirrorMargins');
 
 		let usable = samples.filter(s => s.area >= 0.005);
-		if (usable.length < 2) return null;
+		if (usable.length < 2) {
+			this.log('only ' + usable.length + ' of ' + samples.length
+				+ ' measured pages carry enough ink to crop against');
+			return null;
+		}
 
 		let pageWidth = this.median(usable.map(s => s.pageWidth));
 		let pageHeight = this.median(usable.map(s => s.pageHeight));
@@ -1214,7 +1221,7 @@ var CropToMargin = {
 		let viewerEl = doc.getElementById('viewer');
 		if (!viewerEl) {
 			this.log('attach failed: no #viewer element');
-			return;
+			return false;
 		}
 
 		let entry = state.views.get(view);
@@ -1225,6 +1232,7 @@ var CropToMargin = {
 				appliedScale: null,
 				fitWidth: null,
 				fitHeight: null,
+				pendingFit: false,
 				resizePending: null,
 				style: null,
 				busEvents: [],
@@ -1341,6 +1349,7 @@ var CropToMargin = {
 		// The page on screen is the one worth guarding first.
 		this.guardPage(state, view, Math.max(0, viewer.currentPageNumber - 1))
 			.catch(e => this.logError(e));
+		return true;
 	},
 
 	detachView(state, view) {
@@ -1563,10 +1572,15 @@ var CropToMargin = {
 			let container = win.document.getElementById('viewerContainer');
 			let pageView = viewer.getPageView(Math.max(0, viewer.currentPageNumber - 1))
 				|| viewer.getPageView(0);
-			if (!container || !pageView || !pageView.viewport) return;
-			// A reader in a background tab measures 0x0; fitting to that would peg
-			// the zoom at its minimum and flash when the tab comes back.
-			if (!(container.clientWidth > 0) || !(container.clientHeight > 0)) return;
+			// A reader in a background tab measures 0x0, and one that is not laid out
+			// yet has no page view. Fitting to either would peg the zoom at its
+			// minimum, so leave a note to come back instead of giving up: refit()
+			// would otherwise never run again, appliedScale never having been set.
+			if (!container || !pageView || !pageView.viewport
+				|| !(container.clientWidth > 0) || !(container.clientHeight > 0)) {
+				entry.pendingFit = true;
+				return;
+			}
 
 			// The shared crop, not this page's override: a relaxed outlier should not
 			// re-zoom the whole document.
@@ -1575,6 +1589,7 @@ var CropToMargin = {
 			let widthFraction = 1 - (box.l + box.r) / box.width;
 			let heightFraction = 1 - (box.t + box.b) / box.height;
 			if (!(widthFraction > 0) || !(heightFraction > 0)) return;
+			entry.pendingFit = false;
 
 			// pdf.js's own "page width" arithmetic, divided by what survives the crop.
 			let horizontalPadding = this.SCROLLBAR_PADDING;
@@ -1615,7 +1630,14 @@ var CropToMargin = {
 	/** Re-fit on resize, but only while the user has not taken over the zoom. */
 	refit(state, view) {
 		let entry = state.views.get(view);
-		if (!entry || entry.appliedScale === null) return;
+		if (!entry) return;
+		// appliedScale is null until the first successful fit; pendingFit says one
+		// was owed and never happened, which is the case worth retrying.
+		if (entry.appliedScale === null && !entry.pendingFit) return;
+		if (entry.appliedScale === null) {
+			this.fit(state, view);
+			return;
+		}
 		try {
 			let win = view._iframeWindow;
 			let viewer = win.PDFViewerApplication.pdfViewer;

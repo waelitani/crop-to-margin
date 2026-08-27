@@ -147,6 +147,16 @@ To iterate against a live Zotero, point it at the working tree instead of
 reinstalling: create a file named after the plugin ID in your Zotero profile's
 `extensions/` directory containing the absolute path to `addon/`, then restart.
 
+`crop-to-margin.log` in the Zotero data directory records what the plugin did on
+the current session — how many readers it adopted, how many sampled pages
+measured, the crop it agreed on, the scale it fitted. Turn it off with the
+`logFile` preference.
+
+One trap worth knowing if you fork this: load plugin subscripts with
+`loadSubScriptWithOptions(..., { ignoreCache: true })`. The subscript loader
+caches by URL, the URL is the plugin ID, and without it an upgraded plugin
+silently keeps running the version loaded first that session.
+
 ```
 ├── addon/                     what gets packed into the .xpi
 │   ├── bootstrap.js           Zotero plugin entry points

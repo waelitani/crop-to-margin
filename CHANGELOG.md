@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] — 2026-08-27
+
+### Fixed
+- **Upgrading the plugin did nothing.** `bootstrap.js` loaded the plugin's code
+  with `loadSubScript`, which caches compiled scripts by URL for the life of the
+  process — and the URL is the plugin's ID, which does not change between
+  versions. So installing a new version into a running Zotero silently re-ran
+  whichever version had been loaded first that session. Every fix from 0.1.1
+  onwards was shadowed. Zotero loads `bootstrap.js` itself with
+  `ignoreCache: true` for exactly this reason; now so does the plugin.
+- A pane that was not laid out yet — a background tab measuring 0×0 — left the
+  fit permanently owed: the early return happened before a scale was recorded,
+  and the retry path only ran once one had been. It now leaves a note to come
+  back.
+- The toolbar button could report "on" after an attach that had returned early
+  and done nothing.
+- "No measurable content" covered two different outcomes — nothing measured, and
+  everything measured but discarded as blank. They now say which.
+
 ## [0.1.5] — 2026-08-27
 
 ### Fixed
