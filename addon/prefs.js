@@ -23,6 +23,11 @@ pref("extensions.zotero.crop-to-margin.maxCrop", 30);
 // "width" fits the cropped text block to the pane width, "page" fits it whole.
 pref("extensions.zotero.crop-to-margin.fitMode", "width");
 
+// "page" turns the pages one at a time while cropping, which keeps pdf.js's idea
+// of where a page sits from drifting against the cropped layout. "keep" leaves
+// whatever scrolling mode the document was already using.
+pref("extensions.zotero.crop-to-margin.scrollMode", "page");
+
 // Width in pixels each sampled page is rendered at before it is scanned.
 pref("extensions.zotero.crop-to-margin.renderWidth", 240);
 

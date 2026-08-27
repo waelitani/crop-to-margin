@@ -56,6 +56,20 @@
 		</hbox>
 
 		<hbox class="ctm-row" align="center">
+			<label class="ctm-label" value="Scrolling while cropped:"/>
+			<menulist id="ctm-scrollmode" native="true"
+				preference="extensions.zotero.crop-to-margin.scrollMode">
+				<menupopup>
+					<menuitem value="page" label="One page at a time"/>
+					<menuitem value="keep" label="Leave it as it is"/>
+				</menupopup>
+			</menulist>
+		</hbox>
+		<html:p class="ctm-note">A cropped page sits in a smaller box than pdf.js measures
+			it in, so continuous scrolling drifts. Turning the pages avoids it. Pair this
+			with fitting the whole page below if you want nothing to scroll at all.</html:p>
+
+		<hbox class="ctm-row" align="center">
 			<label class="ctm-label" value="Fit the cropped page to:"/>
 			<menulist id="ctm-fitmode" native="true"
 				preference="extensions.zotero.crop-to-margin.fitMode">

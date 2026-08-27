@@ -26,6 +26,7 @@ var CropToMargin = {
 	MIN_SCALE: 0.1,
 	MAX_SCALE: 10,
 	SCROLL_MODE_HORIZONTAL: 1,
+	SCROLL_MODE_PAGE: 3,
 	SPREAD_MODE_NONE: 0,
 
 	DEFAULTS: {
@@ -36,6 +37,7 @@ var CropToMargin = {
 		mirrorMargins: true,
 		maxCrop: 30,
 		fitMode: 'width',
+		scrollMode: 'page',
 		renderWidth: 240,
 		threshold: 12,
 		minInk: 2,
@@ -901,10 +903,13 @@ var CropToMargin = {
 		if (!entry) {
 			entry = {
 				previousScaleValue: viewer.currentScaleValue,
+				previousScrollMode: null,
 				appliedScale: null,
+				fitWidth: null,
 				style: null,
 				busEvents: [],
 				domEvents: [],
+				resizeObserver: null,
 				pending: null,
 				checked: new Set(),
 				pageBoxes: new Map()
@@ -951,7 +956,7 @@ var CropToMargin = {
 			// DOM listeners work from chrome without being exported, and cover the
 			// cases the event bus would have covered if exportFunction were missing.
 			let container = doc.getElementById('viewerContainer');
-			let onResize = () => this.refit(state, view);
+			let onResize = () => this.onViewportResize(state, view);
 			let onSettle = () => this.scheduleFitClass(state, view);
 			win.addEventListener('resize', onResize);
 			entry.domEvents.push([win, 'resize', onResize]);
@@ -962,8 +967,26 @@ var CropToMargin = {
 				}
 			}
 		}
+		if (!entry.resizeObserver) {
+			// The pane can change width without the window resizing — a collapsing
+			// sidebar, a plugin hiding the reader chrome. Observing the container
+			// itself catches those; the window listener above stays as a fallback.
+			try {
+				let container = doc.getElementById('viewerContainer');
+				if (container) {
+					entry.resizeObserver = new win.ResizeObserver(() => {
+						this.onViewportResize(state, view);
+					});
+					entry.resizeObserver.observe(container);
+				}
+			}
+			catch (e) {
+				this.trace('no ResizeObserver in the viewer: ' + e);
+			}
+		}
 
 		this.fit(state, view);
+		this.applyScrollMode(state, view);
 		// The page on screen is the one worth guarding first.
 		this.guardPage(state, view, Math.max(0, viewer.currentPageNumber - 1))
 			.catch(e => this.logError(e));
@@ -985,6 +1008,15 @@ var CropToMargin = {
 			for (let [name, handler] of entry.busEvents) app.eventBus.off(name, handler);
 			for (let [target, name, handler] of entry.domEvents) {
 				target.removeEventListener(name, handler);
+			}
+			if (entry.resizeObserver) entry.resizeObserver.disconnect();
+			if (entry.previousScrollMode !== null) {
+				try {
+					view.setScrollMode(entry.previousScrollMode);
+				}
+				catch (e) {
+					this.logError(e);
+				}
 			}
 
 			let viewerEl = doc.getElementById('viewer');
@@ -1195,6 +1227,7 @@ var CropToMargin = {
 			scale = this.clamp(scale, this.MIN_SCALE, this.MAX_SCALE);
 
 			entry.appliedScale = Math.round(scale * 10000) / 10000;
+			entry.fitWidth = container.clientWidth;
 			viewer.currentScaleValue = String(entry.appliedScale);
 			this.updateFitClass(state, view);
 		}
@@ -1226,6 +1259,51 @@ var CropToMargin = {
 	 * DOM event, so this keeps working even where the page-rendered hook could not
 	 * be installed.
 	 */
+	/**
+	 * Turn the pages instead of scrolling through them.
+	 *
+	 * A cropped page has negative margins, so in a continuously scrolling viewer
+	 * pdf.js's idea of where each page sits — it measures the real page box, not
+	 * the cropped one — drifts from what is on screen. Paginated scrolling puts
+	 * one page, or one spread, in the viewer at a time and sidesteps that
+	 * entirely. Zotero's own scroll-mode API is used so the choice is saved with
+	 * the document and reflected in its view state.
+	 */
+	applyScrollMode(state, view) {
+		let entry = state.views.get(view);
+		if (!entry) return;
+		if (this.getPref('scrollMode') !== 'page') return;
+		try {
+			let viewer = view._iframeWindow.PDFViewerApplication.pdfViewer;
+			if (viewer.scrollMode === this.SCROLL_MODE_PAGE) return;
+			entry.previousScrollMode = viewer.scrollMode;
+			view.setScrollMode(this.SCROLL_MODE_PAGE);
+		}
+		catch (e) {
+			this.logError(e);
+		}
+	},
+
+	/**
+	 * Re-fit when the pane itself changes size, ignoring the size changes our own
+	 * re-fit causes — a scrollbar appearing or leaving would otherwise ping-pong.
+	 */
+	onViewportResize(state, view) {
+		let entry = state.views.get(view);
+		if (!entry) return;
+		try {
+			let container = view._iframeWindow.document.getElementById('viewerContainer');
+			if (!container) return;
+			if (entry.fitWidth !== null && Math.abs(container.clientWidth - entry.fitWidth) <= 1) {
+				return;
+			}
+		}
+		catch (e) {
+			return;
+		}
+		this.refit(state, view);
+	},
+
 	scheduleFitClass(state, view) {
 		let entry = state.views.get(view);
 		if (!entry || entry.pending) return;
