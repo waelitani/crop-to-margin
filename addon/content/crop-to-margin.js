@@ -46,7 +46,8 @@ var CropToMargin = {
 		guardPages: true,
 		cache: '{}',
 		cacheLimit: 300,
-		debug: false
+		debug: false,
+		logFile: true
 	},
 
 	id: null,
@@ -59,6 +60,10 @@ var CropToMargin = {
 	_hooked: null,
 	_states: null,
 	_shuttingDown: false,
+	_logQueue: null,
+	_logPath: null,
+	_logBytes: 0,
+	_logStarted: false,
 
 	/* ---------------------------------------------------------------- setup */
 
@@ -68,6 +73,10 @@ var CropToMargin = {
 		this.rootURI = rootURI;
 		this._hooked = new WeakSet();
 		this._states = new WeakMap();
+		this._logQueue = null;
+		this._logBytes = 0;
+		this._logStarted = false;
+		this.log('--- startup ' + version + ' ---');
 
 		try {
 			this._l10n = new Localization(['crop-to-margin.ftl'], true);
@@ -105,7 +114,9 @@ var CropToMargin = {
 
 		// Readers that were already open when the plugin started.
 		try {
-			for (let reader of this.readers()) {
+			let open = this.readers();
+			this.log('adopting ' + open.length + ' open reader(s)');
+			for (let reader of open) {
 				this.hookReader(reader);
 			}
 		}
@@ -161,15 +172,46 @@ var CropToMargin = {
 
 	log(msg) {
 		Zotero.debug('[crop-to-margin] ' + msg);
+		this.writeLine(msg);
 	},
 
 	logError(e) {
-		Zotero.logError(new Error('[crop-to-margin] ' + (e && e.message ? e.message : e)));
+		let text = (e && e.message ? e.message : String(e));
+		Zotero.logError(new Error('[crop-to-margin] ' + text));
 		if (e && e.stack) Zotero.debug(e.stack);
+		this.writeLine('ERROR ' + text + (e && e.stack ? ' | ' + String(e.stack).split('\n')[0] : ''));
 	},
 
 	trace(msg) {
 		if (this.getPref('debug')) this.log(msg);
+	},
+
+	/**
+	 * A log beside the library, because the interesting failures here are silent
+	 * ones inside a reader you cannot put a breakpoint in. Capped, and switchable
+	 * off with the logFile preference.
+	 */
+	writeLine(msg) {
+		if (!this.getPref('logFile')) return;
+		try {
+			if (!this._logPath) {
+				this._logPath = PathUtils.join(Zotero.DataDirectory.dir, 'crop-to-margin.log');
+			}
+			let stamp = new Date().toISOString().replace('T', ' ').slice(0, 19);
+			let line = stamp + '  ' + msg + '\n';
+			this._logBytes += line.length;
+			// One session per file, and capped, so it stays readable and bounded.
+			let fresh = !this._logStarted || this._logBytes > 262144;
+			let mode = fresh ? 'overwrite' : 'appendOrCreate';
+			if (fresh) this._logBytes = line.length;
+			this._logStarted = true;
+			this._logQueue = (this._logQueue || Promise.resolve())
+				.then(() => IOUtils.writeUTF8(this._logPath, line, { mode }))
+				.catch(() => {});
+		}
+		catch (e) {
+			// Logging must never be the thing that breaks.
+		}
 	},
 
 	getPref(key) {
@@ -301,11 +343,16 @@ var CropToMargin = {
 		if (!reader || reader.type !== 'pdf') return;
 		if (this._hooked.has(reader)) return;
 		this._hooked.add(reader);
+		let enabled = this.getPref('enabled');
+		this.log('hook item ' + reader.itemID + ' (enabled=' + enabled + ')');
 		// The button and the split watcher go in whether or not cropping is on.
 		this.adoptReader(reader).catch(e => this.logError(e));
-		if (!this.getPref('enabled')) return;
+		if (!enabled) return;
 		this.waitForDocument(reader)
-			.then(ready => ready && this.enable(reader))
+			.then((ready) => {
+				this.log('document ready=' + ready + ' for item ' + reader.itemID);
+				return ready && this.enable(reader);
+			})
 			.catch(e => this.logError(e));
 	},
 
@@ -335,10 +382,14 @@ var CropToMargin = {
 			catch (e) {
 				this.logError(e);
 			}
-			if (button && split) return;
+			if (button && split) {
+				this.log('adopted item ' + reader.itemID + ' (button + split watcher)');
+				return;
+			}
 			await this.delay(200);
 		}
-		this.trace('gave up adopting reader for item ' + reader.itemID);
+		this.log('gave up adopting item ' + reader.itemID
+			+ ' (button=' + button + ' split=' + split + ')');
 	},
 
 	ensureButton(reader) {
@@ -456,6 +507,9 @@ var CropToMargin = {
 			}
 			await this.delay(150);
 		}
+		let views = this.getViews(reader);
+		this.log('timed out waiting for item ' + reader.itemID
+			+ ' (views=' + views.length + ' initialized=' + initialized + ')');
 		return false;
 	},
 
@@ -597,8 +651,12 @@ var CropToMargin = {
 
 	async enable(reader, { recalculate = false } = {}) {
 		let state = this.stateFor(reader);
-		if (state.busy) return;
+		if (state.busy) {
+			this.log('enable skipped for item ' + reader.itemID + ': already working');
+			return;
+		}
 		let views = this.getViews(reader);
+		this.log('enable item ' + reader.itemID + ': ' + views.length + ' view(s)');
 		if (!views.length) return;
 
 		state.busy = true;
@@ -633,6 +691,7 @@ var CropToMargin = {
 			}
 			// Only claim to be on if something actually is.
 			state.active = attached > 0;
+			this.log('attached ' + attached + ' view(s); active=' + state.active);
 		}
 		finally {
 			state.busy = false;
@@ -678,17 +737,25 @@ var CropToMargin = {
 		let indexes = this.pickPages(numPages, this.clamp(this.getPref('sampleCount'), 3, 64));
 
 		let samples = [];
+		let failures = 0;
 		for (let index of indexes) {
 			let sample;
 			try {
 				sample = await this.measurePage(win, pdf, index, options);
 			}
 			catch (e) {
-				this.trace('page ' + (index + 1) + ' could not be measured: ' + e);
+				// Always logged: a measurement that throws is the difference between
+				// a crop and complete silence.
+				if (failures++ < 3) {
+					this.logError(new Error('page ' + (index + 1) + ' could not be measured: '
+						+ (e && e.message ? e.message : e)));
+				}
 				continue;
 			}
 			if (sample) samples.push(sample);
 		}
+		this.log('measured ' + samples.length + '/' + indexes.length + ' sampled pages of '
+			+ numPages + ' (' + failures + ' failed)');
 		if (samples.length < 2) return null;
 		return this.consensus(samples, numPages);
 	},
@@ -1086,7 +1153,10 @@ var CropToMargin = {
 		let app = win.PDFViewerApplication;
 		let viewer = app.pdfViewer;
 		let viewerEl = doc.getElementById('viewer');
-		if (!viewerEl) return;
+		if (!viewerEl) {
+			this.log('attach failed: no #viewer element');
+			return;
+		}
 
 		let entry = state.views.get(view);
 		if (!entry) {
@@ -1467,6 +1537,9 @@ var CropToMargin = {
 			scale = this.clamp(scale, this.MIN_SCALE, this.MAX_SCALE);
 
 			entry.appliedScale = Math.round(scale * 10000) / 10000;
+			this.log('fit scale=' + entry.appliedScale + ' pane=' + container.clientWidth
+				+ 'x' + container.clientHeight + ' content=' + widthFraction.toFixed(3)
+				+ 'w ' + heightFraction.toFixed(3) + 'h whole=' + this.fitsWholePage(viewer));
 			viewer.currentScaleValue = String(entry.appliedScale);
 			this.updateFitClass(state, view);
 			// Recorded only now: setting the scale relaid the viewer out, and a
@@ -1532,6 +1605,7 @@ var CropToMargin = {
 			}
 			entry.previousScrollMode = viewer.scrollMode;
 			this.setPref('restoreScrollMode', viewer.scrollMode);
+			this.log('scroll mode ' + viewer.scrollMode + ' -> paginated');
 			view.setScrollMode(this.SCROLL_MODE_PAGE);
 		}
 		catch (e) {

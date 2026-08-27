@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] — 2026-08-27
+
+### Added
+- A log beside the library, at `crop-to-margin.log` in the Zotero data directory.
+  The failures that matter here are silent ones inside a reader that cannot be
+  breakpointed, and every early return on the path from opening a PDF to applying
+  a crop now says so. One session per file, capped at 256 KB, switchable off with
+  the `logFile` preference.
+
+### Fixed
+- A page that could not be measured was reported only under the `debug`
+  preference, so a document that measured nothing at all looked identical to one
+  that needed no crop.
+
 ## [0.1.3] — 2026-08-27
 
 Paginated scrolling shipped in 0.1.1 was broken in ways an audit against pdf.js
