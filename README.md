@@ -10,7 +10,13 @@ where the ink actually is, hides the paper around it, and refits — so the type
 gets bigger without you touching the zoom.
 
 On Davidson's *Turbulence: An Introduction for Scientists and Engineers* (647
-pages) that is **1.41× larger type, 98% more ink on screen**.
+pages) the text block is 71.0% of the page width and 90.2% of its height, so
+fitting the crop to the pane instead of the page gives **1.41× larger type, 98%
+more ink on screen**.
+
+That figure is for continuous scrolling fitted to the pane width. Reading a page
+at a time fits the whole page instead — bound by height rather than width — which
+on the same book is 1.11×. See [Settings](#settings).
 
 ---
 
@@ -107,6 +113,19 @@ just 16 samples:
 The pages that do not fit are the cover and the two-column index — front and back
 matter, not the body — and those are exactly what the per-page guard hands their
 margins back to.
+
+Measured again inside Zotero, against the same book, the plugin agrees with the
+reference to within a third of a percent per side, in about a second:
+
+```
+probe: waiveXrays=function cloneInto=function exportFunction=function
+       page.view=ok getViewport=function render=function
+measured 16/16 sampled pages of 647 (0 failed)
+measured 16 pages in 1077 ms → odd[L19.3% R9.7% T5.2% B4.6%]
+                               even[L10.1% R18.9% T5.2% B4.6%]
+scroll mode 0 -> paginated
+fit scale=1.1867 pane=2048x1000 content=0.710w 0.902h whole=true
+```
 
 For other kinds of document the gain is smaller because the margins are already
 tight: journal articles in the same library come out at 1.10× to 1.15×.
