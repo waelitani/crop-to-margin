@@ -47,7 +47,7 @@ var CropToMargin = {
 		cache: '{}',
 		cacheLimit: 300,
 		debug: false,
-		logFile: true
+		logFile: false
 	},
 
 	id: null,
@@ -188,9 +188,9 @@ var CropToMargin = {
 	},
 
 	/**
-	 * A log beside the library, because the interesting failures here are silent
-	 * ones inside a reader you cannot put a breakpoint in. Capped, and switchable
-	 * off with the logFile preference.
+	 * A log beside the library, for when the interesting failure is a silent one
+	 * inside a reader you cannot put a breakpoint in. Off unless the logFile
+	 * preference is set; capped at one session per file.
 	 */
 	writeLine(msg) {
 		if (!this.getPref('logFile')) return;

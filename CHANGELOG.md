@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] — 2026-08-27
+
+### Changed
+- The log file is off by default. It was bring-up instrumentation and the plugin
+  now works; set the `logFile` preference to turn it back on. Errors still reach
+  Zotero's own debug output either way.
+
 ## [0.1.6] — 2026-08-27
 
 ### Fixed

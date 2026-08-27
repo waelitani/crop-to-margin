@@ -54,6 +54,9 @@ pref("extensions.zotero.crop-to-margin.cacheLimit", 300);
 pref("extensions.zotero.crop-to-margin.debug", false);
 
 // Write what the plugin is doing to crop-to-margin.log in the Zotero data
-// directory. The interesting failures here are silent ones inside a reader you
-// cannot put a breakpoint in. One session per file, capped at 256 KB.
-pref("extensions.zotero.crop-to-margin.logFile", true);
+// directory: pages measured, the crop agreed on, the scale fitted. Off by
+// default; turn it on when something is not happening and you want to know why,
+// since the failures here are silent ones inside a reader you cannot put a
+// breakpoint in. One session per file, capped at 256 KB. Errors always go to
+// Zotero's own debug output regardless.
+pref("extensions.zotero.crop-to-margin.logFile", false);
