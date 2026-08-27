@@ -4,6 +4,41 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] — 2026-08-27
+
+Paginated scrolling shipped in 0.1.1 was broken in ways an audit against pdf.js
+5.4.0 caught before much reading was done with it.
+
+### Fixed
+- **Pages could not be turned.** pdf.js turns a page on ArrowDown or PageDown only
+  when the relevant scrollbar is absent, or when the zoom is literally the string
+  `page-fit` — and the crop's zoom is always a number. Paired with a fit-to-width
+  zoom that left the page scrolling, a reader reached the bottom of a page with no
+  way forward. Paginated mode now fits each page whole, whatever the fit
+  preference says.
+- **A spread lost its right-hand page.** The scrollbar suppression measured one
+  page, not the two-page row plus its gap, so it hid the scrollbar while half the
+  spread sat outside the pane with no way to reach it.
+- **The zoom could oscillate.** The pane width was recorded before the zoom was
+  applied rather than after, so the scrollbar arriving or leaving read as an
+  external resize and re-fitted, frame after frame.
+- **The document's scrolling mode was destroyed after one session.** Zotero saves
+  the mode with the document, so on the second open the viewer was already
+  paginated and there was nothing left in it to remember. What to go back to is
+  now kept outside the viewer.
+- Page turns no longer leave the spread shoved sideways: `overflow-x: hidden`
+  still scrolls programmatically, and pdf.js sets the offset from the page's real
+  edge, which the crop put a margin's width outside the pane.
+- A whole-page fit now answers a pane that gets taller without getting wider —
+  which is exactly what hiding the reader chrome does.
+- A reader in a background tab measures 0×0; fitting to that pegged the zoom at
+  its minimum and flashed when the tab came back.
+- Resize deliveries are coalesced, so a full-screen transition no longer forces a
+  relayout for each intermediate size.
+- Observers are disconnected before anything that can throw on a torn-down view,
+  instead of after; and the per-page stamps are cleared through the page views,
+  since paginated mode keeps all but the current page out of the DOM.
+
 ## [0.1.2] — 2026-08-27
 
 ### Fixed

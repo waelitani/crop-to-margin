@@ -28,6 +28,7 @@ var CropToMargin = {
 	SCROLL_MODE_HORIZONTAL: 1,
 	SCROLL_MODE_PAGE: 3,
 	SPREAD_MODE_NONE: 0,
+	SPREAD_GAP: 10,
 
 	DEFAULTS: {
 		enabled: true,
@@ -38,6 +39,7 @@ var CropToMargin = {
 		maxCrop: 30,
 		fitMode: 'width',
 		scrollMode: 'page',
+		restoreScrollMode: 0,
 		renderWidth: 240,
 		threshold: 12,
 		minInk: 2,
@@ -1093,6 +1095,8 @@ var CropToMargin = {
 				previousScrollMode: null,
 				appliedScale: null,
 				fitWidth: null,
+				fitHeight: null,
+				resizePending: null,
 				style: null,
 				busEvents: [],
 				domEvents: [],
@@ -1129,6 +1133,7 @@ var CropToMargin = {
 				pagesinit: () => this.stampAll(state, view),
 				pagesloaded: () => this.stampAll(state, view),
 				pagerendered: (e) => this.onPageRendered(state, view, (e && e.pageNumber || 1) - 1),
+				pagechanging: () => this.updateFitClass(state, view),
 				rotationchanging: () => this.reapply(state, view),
 				spreadmodechanged: () => this.reapply(state, view),
 				scrollmodechanged: () => this.reapply(state, view)
@@ -1180,9 +1185,18 @@ var CropToMargin = {
 			try {
 				let container = doc.getElementById('viewerContainer');
 				if (container) {
-					entry.resizeObserver = new win.ResizeObserver(() => {
-						this.onViewportResize(state, view);
-					});
+					// Coalesced: a full-screen transition delivers a burst of
+					// intermediate sizes, and each one would otherwise force a relayout.
+					let deliver = () => {
+						if (entry.resizePending) return;
+						entry.resizePending = setTimeout(() => {
+							entry.resizePending = null;
+							this.onViewportResize(state, view);
+						}, 100);
+					};
+					entry.resizeObserver = new win.ResizeObserver(
+						this.exportFn(win, deliver) || deliver
+					);
 					entry.resizeObserver.observe(container);
 				}
 			}
@@ -1191,8 +1205,10 @@ var CropToMargin = {
 			}
 		}
 
-		this.fit(state, view);
+		// Scroll mode first: switching it rebuilds the viewer's DOM, so fitting
+		// beforehand would measure a layout that is about to be thrown away.
 		this.applyScrollMode(state, view);
+		this.fit(state, view);
 		// The page on screen is the one worth guarding first.
 		this.guardPage(state, view, Math.max(0, viewer.currentPageNumber - 1))
 			.catch(e => this.logError(e));
@@ -1202,45 +1218,59 @@ var CropToMargin = {
 		let entry = state.views.get(view);
 		if (!entry) return;
 		state.views.delete(view);
+
+		// Anything that outlives this call goes first, each on its own, before a
+		// throw from a half-torn-down view can strand it with no handle left.
+		for (let stop of [
+			() => entry.pending && clearTimeout(entry.pending),
+			() => entry.resizePending && clearTimeout(entry.resizePending),
+			() => entry.resizeObserver && entry.resizeObserver.disconnect(),
+			() => entry.stampObserver && entry.stampObserver.disconnect()
+		]) {
+			try {
+				stop();
+			}
+			catch (e) {
+				// The view is already gone; nothing left to disconnect from.
+			}
+		}
+		entry.pending = null;
+		entry.resizePending = null;
+		entry.resizeObserver = null;
+		entry.stampObserver = null;
+
 		try {
 			let win = view._iframeWindow;
 			let doc = win.document;
 			let app = win.PDFViewerApplication;
 
-			if (entry.pending) {
-				clearTimeout(entry.pending);
-				entry.pending = null;
-			}
 			for (let [name, handler] of entry.busEvents) app.eventBus.off(name, handler);
 			for (let [target, name, handler] of entry.domEvents) {
 				target.removeEventListener(name, handler);
 			}
-			if (entry.resizeObserver) entry.resizeObserver.disconnect();
-			if (entry.stampObserver) entry.stampObserver.disconnect();
-			if (entry.previousScrollMode !== null) {
-				try {
-					view.setScrollMode(entry.previousScrollMode);
-				}
-				catch (e) {
-					this.logError(e);
-				}
-			}
+			entry.busEvents = [];
+			entry.domEvents = [];
 
-			let viewerEl = doc.getElementById('viewer');
-			if (viewerEl) {
-				viewerEl.classList.remove(this.VIEWER_CLASS);
-				for (let page of viewerEl.querySelectorAll('.page')) {
-					for (let name of ['--ctm-t', '--ctm-r', '--ctm-b', '--ctm-l']) {
-						page.style.removeProperty(name);
-					}
+			this.restoreScrollMode(view, entry);
+
+			// Paginated mode keeps all but the current page detached from #viewer, so
+			// the stamps have to be cleared through the page views, not the DOM.
+			let viewer = app.pdfViewer;
+			for (let i = 0; i < viewer.pagesCount; i++) {
+				let pageView = viewer.getPageView(i);
+				if (!pageView || !pageView.div) continue;
+				for (let name of ['--ctm-t', '--ctm-r', '--ctm-b', '--ctm-l']) {
+					pageView.div.style.removeProperty(name);
 				}
 			}
+			let viewerEl = doc.getElementById('viewer');
+			if (viewerEl) viewerEl.classList.remove(this.VIEWER_CLASS);
 			doc.body.classList.remove(this.FIT_CLASS);
 			if (entry.style && entry.style.parentNode) {
 				entry.style.parentNode.removeChild(entry.style);
 			}
 
-			app.pdfViewer.currentScaleValue = entry.previousScaleValue || 'page-width';
+			viewer.currentScaleValue = entry.previousScaleValue || 'page-width';
 		}
 		catch (e) {
 			this.logError(e);
@@ -1405,6 +1435,9 @@ var CropToMargin = {
 			let pageView = viewer.getPageView(Math.max(0, viewer.currentPageNumber - 1))
 				|| viewer.getPageView(0);
 			if (!container || !pageView || !pageView.viewport) return;
+			// A reader in a background tab measures 0x0; fitting to that would peg
+			// the zoom at its minimum and flash when the tab comes back.
+			if (!(container.clientWidth > 0) || !(container.clientHeight > 0)) return;
 
 			// The shared crop, not this page's override: a relaxed outlier should not
 			// re-zoom the whole document.
@@ -1426,7 +1459,7 @@ var CropToMargin = {
 			let widthScale = ((container.clientWidth - horizontalPadding) / pageView.width)
 				* pageView.scale / spreadFactor / widthFraction;
 			let scale = widthScale;
-			if (this.getPref('fitMode') === 'page') {
+			if (this.fitsWholePage(viewer)) {
 				let heightScale = ((container.clientHeight - verticalPadding) / pageView.height)
 					* pageView.scale / heightFraction;
 				scale = Math.min(widthScale, heightScale);
@@ -1434,9 +1467,13 @@ var CropToMargin = {
 			scale = this.clamp(scale, this.MIN_SCALE, this.MAX_SCALE);
 
 			entry.appliedScale = Math.round(scale * 10000) / 10000;
-			entry.fitWidth = container.clientWidth;
 			viewer.currentScaleValue = String(entry.appliedScale);
 			this.updateFitClass(state, view);
+			// Recorded only now: setting the scale relaid the viewer out, and a
+			// scrollbar arriving or leaving moves clientWidth by ~15px. Recording the
+			// pre-layout width would make the resize guard fire on our own change and
+			// ping-pong between two scales.
+			this.recordFitSize(entry, container);
 		}
 		catch (e) {
 			this.logError(e);
@@ -1448,8 +1485,12 @@ var CropToMargin = {
 		let entry = state.views.get(view);
 		if (!entry || entry.appliedScale === null) return;
 		try {
-			let viewer = view._iframeWindow.PDFViewerApplication.pdfViewer;
+			let win = view._iframeWindow;
+			let viewer = win.PDFViewerApplication.pdfViewer;
 			if (Math.abs(viewer.currentScale - entry.appliedScale) > 0.001) {
+				// The reader has taken the zoom over. Leave it, but take the new pane
+				// size as read, or every later delivery would clear the guard again.
+				this.recordFitSize(entry, win.document.getElementById('viewerContainer'));
 				this.updateFitClass(state, view);
 				return;
 			}
@@ -1482,13 +1523,46 @@ var CropToMargin = {
 		if (this.getPref('scrollMode') !== 'page') return;
 		try {
 			let viewer = view._iframeWindow.PDFViewerApplication.pdfViewer;
-			if (viewer.scrollMode === this.SCROLL_MODE_PAGE) return;
+			if (viewer.scrollMode === this.SCROLL_MODE_PAGE) {
+				// Zotero saves the scroll mode with the document, so on every open
+				// after the first the viewer is already paginated and there is nothing
+				// left in it to remember. What to go back to is kept out here instead.
+				entry.previousScrollMode = this.clamp(this.getPref('restoreScrollMode'), 0, 3);
+				return;
+			}
 			entry.previousScrollMode = viewer.scrollMode;
+			this.setPref('restoreScrollMode', viewer.scrollMode);
 			view.setScrollMode(this.SCROLL_MODE_PAGE);
 		}
 		catch (e) {
 			this.logError(e);
 		}
+	},
+
+	restoreScrollMode(view, entry) {
+		if (entry.previousScrollMode === null) return;
+		if (entry.previousScrollMode === this.SCROLL_MODE_PAGE) return;
+		try {
+			view.setScrollMode(entry.previousScrollMode);
+			entry.previousScrollMode = null;
+		}
+		catch (e) {
+			this.logError(e);
+		}
+	},
+
+	/**
+	 * Paginated reading only works if nothing scrolls inside the page.
+	 *
+	 * pdf.js turns pages on ArrowDown/PageDown only when the relevant scrollbar
+	 * is absent, or when the zoom is literally the string "page-fit" — and ours
+	 * is always a number, because that is the whole point of the crop. So in
+	 * paginated mode we fit the whole page whatever the fit preference says;
+	 * otherwise the reader reaches the bottom of a page with no way forward.
+	 */
+	fitsWholePage(viewer) {
+		return this.getPref('fitMode') === 'page'
+			|| viewer.scrollMode === this.SCROLL_MODE_PAGE;
 	},
 
 	/**
@@ -1499,16 +1573,33 @@ var CropToMargin = {
 		let entry = state.views.get(view);
 		if (!entry) return;
 		try {
-			let container = view._iframeWindow.document.getElementById('viewerContainer');
+			let win = view._iframeWindow;
+			let container = win.document.getElementById('viewerContainer');
 			if (!container) return;
-			if (entry.fitWidth !== null && Math.abs(container.clientWidth - entry.fitWidth) <= 1) {
-				return;
-			}
+			// A background tab reports 0x0.
+			if (!(container.clientWidth > 0) || !(container.clientHeight > 0)) return;
+			if (entry.fitWidth !== null && this.sameFitSize(entry, container, win)) return;
 		}
 		catch (e) {
 			return;
 		}
 		this.refit(state, view);
+	},
+
+	recordFitSize(entry, container) {
+		if (!container) return;
+		entry.fitWidth = container.clientWidth;
+		entry.fitHeight = container.clientHeight;
+	},
+
+	sameFitSize(entry, container, win) {
+		if (Math.abs(container.clientWidth - entry.fitWidth) > 1) return false;
+		// Height only counts when the fit uses it — hiding the reader's chrome makes
+		// the pane taller without making it wider, and a whole-page fit has to
+		// answer that.
+		if (!this.fitsWholePage(win.PDFViewerApplication.pdfViewer)) return true;
+		return entry.fitHeight !== null
+			&& Math.abs(container.clientHeight - entry.fitHeight) <= 1;
 	},
 
 	scheduleFitClass(state, view) {
@@ -1546,8 +1637,21 @@ var CropToMargin = {
 			if (!container || !pageView || !pageView.viewport) return;
 			let box = this.displayCrop(pageView, this.boxFor(entry, pageView.id));
 			let visible = pageView.width * (1 - (box.l + box.r) / box.width);
-			let fits = visible <= container.clientWidth - this.VIEWER_PADDING + 1;
+			// What is actually on the row: a spread is two cropped pages and the gap
+			// between them. Measuring one page would hide the scrollbar while half the
+			// spread sat off the pane with no way to reach it.
+			let spreadFactor = (viewer.spreadMode !== this.SPREAD_MODE_NONE
+				&& viewer.scrollMode !== this.SCROLL_MODE_HORIZONTAL) ? 2 : 1;
+			let row = visible * spreadFactor + (spreadFactor > 1 ? this.SPREAD_GAP : 0);
+			let fits = row <= container.clientWidth - this.VIEWER_PADDING + 1
+				&& viewer.scrollMode !== this.SCROLL_MODE_HORIZONTAL;
 			doc.body.classList.toggle(this.FIT_CLASS, fits);
+			if (fits && container.scrollLeft !== 0) {
+				// overflow-x:hidden still scrolls programmatically, and pdf.js shoves
+				// scrollLeft to the page's real left edge on every turn — which the crop
+				// put a margin's width outside the pane. Put it back.
+				container.scrollLeft = 0;
+			}
 		}
 		catch (e) {
 			this.logError(e);

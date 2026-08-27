@@ -65,9 +65,10 @@
 				</menupopup>
 			</menulist>
 		</hbox>
-		<html:p class="ctm-note">A cropped page sits in a smaller box than pdf.js measures
-			it in, so continuous scrolling drifts. Turning the pages avoids it. Pair this
-			with fitting the whole page below if you want nothing to scroll at all.</html:p>
+		<html:p class="ctm-note">Turning the pages fits each page whole, whatever the
+			setting below says. Zotero only turns a page when nothing scrolls inside it,
+			so a page-at-a-time reader that fits to width reaches the bottom of a page
+			with no way forward.</html:p>
 
 		<hbox class="ctm-row" align="center">
 			<label class="ctm-label" value="Fit the cropped page to:"/>
@@ -79,6 +80,9 @@
 				</menupopup>
 			</menulist>
 		</hbox>
+		<html:p class="ctm-note">Only applies when scrolling is left as it is. Fitting to
+			the pane width gives the largest type; fitting the whole page gives a page at
+			a time with nothing to scroll.</html:p>
 	</groupbox>
 
 	<groupbox>

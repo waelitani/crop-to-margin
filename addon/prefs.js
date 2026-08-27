@@ -28,6 +28,11 @@ pref("extensions.zotero.crop-to-margin.fitMode", "width");
 // whatever scrolling mode the document was already using.
 pref("extensions.zotero.crop-to-margin.scrollMode", "page");
 
+// The scrolling mode a document used before it was first cropped. Zotero saves
+// the paginated mode with the document, so this is the only record of what to
+// go back to. Managed by the plugin.
+pref("extensions.zotero.crop-to-margin.restoreScrollMode", 0);
+
 // Width in pixels each sampled page is rendered at before it is scanned.
 pref("extensions.zotero.crop-to-margin.renderWidth", 240);
 

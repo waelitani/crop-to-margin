@@ -124,7 +124,8 @@ tight: journal articles in the same library come out at 1.10× to 1.15×.
 | Pages measured per document | 16 | More is slower and rarely more accurate |
 | Pages that must keep all their content | 85% | Only used when no layout dominates |
 | Most that may be cropped from one side | 30% | A hard ceiling, whatever the measurements say |
-| Fit the cropped page to | pane width | Or the whole page, if you prefer to see a full page at a time |
+| Scrolling while cropped | one page at a time | Or leave the document's own scrolling alone |
+| Fit the cropped page to | pane width | Only applies when scrolling is left alone — turning the pages always fits whole |
 
 Every crop measured is remembered, keyed by attachment, so a document is only
 ever measured once; **Forget all** clears them. The whole set lives in one
@@ -163,6 +164,12 @@ reinstalling: create a file named after the plugin ID in your Zotero profile's
 ## Known limits
 
 - Only PDFs. EPUB and snapshot readers are left alone.
+- Turning the pages costs magnification: a whole spread fitted to the screen is
+  smaller than one page fitted to the width. It is the price of a page-at-a-time
+  reader, since Zotero only turns a page when nothing scrolls inside it. Set
+  **Scrolling while cropped → Leave it as it is** for the larger type.
+- The space bar does not turn pages: pdf.js reserves it for a zoom value the crop
+  cannot use. Arrow keys, Page Down and the toolbar all work.
 - Zotero dispatches its toolbar hook once per reader document, so the button is
   injected by hand into readers that were already open when the plugin started.
   If a future Zotero re-renders that component, the injected node would be
