@@ -1,0 +1,44 @@
+/* Default preferences. Loaded by Zotero when the plugin is installed.
+   Only boolean / string / integer values are supported, so every fraction
+   below is expressed in percent or in PDF points. */
+
+// Apply the crop automatically whenever a PDF is opened.
+pref("extensions.zotero.crop-to-margin.enabled", true);
+
+// Margin left around the detected content block, in PDF points (72 pt = 1 in).
+pref("extensions.zotero.crop-to-margin.padding", 6);
+
+// How many pages are rendered and measured to decide on one crop box.
+pref("extensions.zotero.crop-to-margin.sampleCount", 16);
+
+// Consensus percentile per side. 15 keeps the content of ~85% of pages.
+pref("extensions.zotero.crop-to-margin.quantile", 15);
+
+// Detect mirrored (recto/verso) margins and crop odd/even pages differently.
+pref("extensions.zotero.crop-to-margin.mirrorMargins", true);
+
+// Hard cap on how much of a page may be cropped away, per side, in percent.
+pref("extensions.zotero.crop-to-margin.maxCrop", 30);
+
+// "width" fits the cropped text block to the pane width, "page" fits it whole.
+pref("extensions.zotero.crop-to-margin.fitMode", "width");
+
+// Width in pixels each sampled page is rendered at before it is scanned.
+pref("extensions.zotero.crop-to-margin.renderWidth", 240);
+
+// A pixel counts as ink when it is this much darker than the page background.
+pref("extensions.zotero.crop-to-margin.threshold", 12);
+
+// Ink pixels a row/column needs before it is believed, to reject speckles.
+pref("extensions.zotero.crop-to-margin.minInk", 2);
+
+// Give a page back its own margins when its text reaches outside the crop
+// chosen for the document — an index or a plate set wider than the body.
+pref("extensions.zotero.crop-to-margin.guardPages", true);
+
+// Remembered crop boxes, keyed by attachment. Managed by the plugin.
+pref("extensions.zotero.crop-to-margin.cache", "{}");
+pref("extensions.zotero.crop-to-margin.cacheLimit", 300);
+
+// Verbose logging to the Zotero debug output.
+pref("extensions.zotero.crop-to-margin.debug", false);

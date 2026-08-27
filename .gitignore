@@ -1,0 +1,22 @@
+# Build output
+build/
+*.xpi
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Local scratch
+scratch/

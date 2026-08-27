@@ -1,0 +1,80 @@
+<vbox id="crop-to-margin-prefs"
+	xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+	xmlns:html="http://www.w3.org/1999/xhtml">
+
+	<groupbox>
+		<html:h2>Crop to Margin</html:h2>
+		<html:p class="ctm-intro">Finds the ink on a PDF's pages, hides the paper around it,
+			and zooms in so the text block fills the reader instead of the page it was
+			printed on.</html:p>
+
+		<checkbox id="ctm-enabled"
+			preference="extensions.zotero.crop-to-margin.enabled"
+			label="Crop margins automatically when a PDF is opened"/>
+		<html:p class="ctm-note">This is the same switch as the crop button in the reader
+			toolbar: whatever you leave it at is what the next PDF opens with.</html:p>
+
+		<checkbox id="ctm-mirror"
+			preference="extensions.zotero.crop-to-margin.mirrorMargins"
+			label="Crop left-hand and right-hand pages separately in books with mirrored margins"/>
+
+		<checkbox id="ctm-guard"
+			preference="extensions.zotero.crop-to-margin.guardPages"
+			label="Give a page its own margins back when its text reaches outside the crop"/>
+		<html:p class="ctm-note">The crop is measured from the body of the document.
+			An index or a plate that sets type wider keeps whatever margin it needs.</html:p>
+	</groupbox>
+
+	<groupbox>
+		<html:h2>Tuning</html:h2>
+
+		<hbox class="ctm-row" align="center">
+			<label class="ctm-label" value="Margin kept around the text:"/>
+			<html:input type="number" min="0" max="144" step="1" class="ctm-number"
+				preference="extensions.zotero.crop-to-margin.padding"/>
+			<label value="points"/>
+		</hbox>
+
+		<hbox class="ctm-row" align="center">
+			<label class="ctm-label" value="Pages measured per document:"/>
+			<html:input type="number" min="3" max="64" step="1" class="ctm-number"
+				preference="extensions.zotero.crop-to-margin.sampleCount"/>
+		</hbox>
+
+		<hbox class="ctm-row" align="center">
+			<label class="ctm-label" value="Pages that must keep all their content:"/>
+			<html:input type="number" min="50" max="100" step="1" class="ctm-number"
+				id="ctm-keep"/>
+			<label value="%"/>
+		</hbox>
+
+		<hbox class="ctm-row" align="center">
+			<label class="ctm-label" value="Most that may be cropped from one side:"/>
+			<html:input type="number" min="0" max="45" step="1" class="ctm-number"
+				preference="extensions.zotero.crop-to-margin.maxCrop"/>
+			<label value="%"/>
+		</hbox>
+
+		<hbox class="ctm-row" align="center">
+			<label class="ctm-label" value="Fit the cropped page to:"/>
+			<menulist id="ctm-fitmode" native="true"
+				preference="extensions.zotero.crop-to-margin.fitMode">
+				<menupopup>
+					<menuitem value="width" label="Pane width"/>
+					<menuitem value="page" label="Whole page"/>
+				</menupopup>
+			</menulist>
+		</hbox>
+	</groupbox>
+
+	<groupbox>
+		<html:h2>Remembered crops</html:h2>
+		<html:p class="ctm-note">Every PDF is measured once; the crop is reused instantly
+			the next time you open it.</html:p>
+		<hbox class="ctm-row" align="center">
+			<label id="ctm-cache-count" value="0 remembered"/>
+			<button id="ctm-clear" label="Forget all"
+				oncommand="CropToMarginPrefs.clearCache()"/>
+		</hbox>
+	</groupbox>
+</vbox>

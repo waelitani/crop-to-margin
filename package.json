@@ -1,0 +1,18 @@
+{
+  "name": "crop-to-margin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Zotero plugin that zooms past a PDF's white margins so the text block fills the reader",
+  "license": "MIT",
+  "author": "Wael Itani",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/waelitani/crop-to-margin.git"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "node --check addon/bootstrap.js && node --check addon/content/crop-to-margin.js && node --check addon/content/preferences.js",
+    "test": "node --test test/consensus.test.mjs"
+  }
+}

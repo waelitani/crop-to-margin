@@ -1,0 +1,22 @@
+#crop-to-margin-prefs .ctm-intro,
+#crop-to-margin-prefs .ctm-note {
+	margin: 0 0 8px 0;
+	opacity: 0.8;
+}
+
+#crop-to-margin-prefs .ctm-note {
+	font-size: 0.9em;
+}
+
+#crop-to-margin-prefs .ctm-row {
+	margin-block: 4px;
+	gap: 6px;
+}
+
+#crop-to-margin-prefs .ctm-label {
+	min-width: 17em;
+}
+
+#crop-to-margin-prefs .ctm-number {
+	width: 5em;
+}
