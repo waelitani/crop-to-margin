@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] — 2026-08-27
+
+### Fixed
+- Nothing was ever measured, on any document. Chrome sees the reader's objects
+  through Xray wrappers, which expose own data properties but hide anything
+  reached through the prototype — so pdf.js's `page.view` getter read as
+  `undefined` rather than throwing, every page measurement failed on the first
+  line, and the crop had nothing to work from. Assigning one content object onto
+  another was refused for the same reason. Both sides of that boundary are now
+  waived. The waiver is sticky through property reads but not across an `await`,
+  so everything a content promise hands back is waived again.
+- The reader adoption poll logged its failure five times a second for a minute.
+
+### Added
+- A one-line capability probe in the log, recording what this build of Zotero
+  actually permits. Reaching into the viewer is the fragile part of this plugin.
+
 ## [0.1.4] — 2026-08-27
 
 ### Added

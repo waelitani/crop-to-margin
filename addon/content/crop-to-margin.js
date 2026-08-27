@@ -64,6 +64,7 @@ var CropToMargin = {
 	_logPath: null,
 	_logBytes: 0,
 	_logStarted: false,
+	_probed: false,
 
 	/* ---------------------------------------------------------------- setup */
 
@@ -256,12 +257,12 @@ var CropToMargin = {
 	contentObj(win, props) {
 		let obj = null;
 		for (let make of [
+			() => Components.utils.cloneInto({}, win),
 			() => new win.Object(),
-			() => win.JSON.parse('{}'),
-			() => Components.utils.cloneInto({}, win)
+			() => win.JSON.parse('{}')
 		]) {
 			try {
-				obj = make();
+				obj = this.waive(make());
 				if (obj) break;
 			}
 			catch (e) {
@@ -269,23 +270,48 @@ var CropToMargin = {
 			}
 		}
 		if (!obj) throw new Error('cannot reach the viewer compartment');
+		// Both sides waived: an Xray refuses to hold another compartment's object.
 		for (let key of Object.keys(props)) {
-			obj[key] = props[key];
+			obj[key] = this.waive(props[key]);
 		}
 		return obj;
 	},
 
 	/**
-	 * A plain-data value living in the viewer's compartment.
+	 * The unwrapped view of a content object.
 	 *
-	 * WebIDL callbacks from here work as they are — that is how a chrome click
-	 * listener on a content node works — but dictionary *arguments* do not: a
-	 * chrome object reaching content is opaque, and reading a member off it is
-	 * denied. Every options bag handed to the viewer has to be built there.
+	 * Chrome sees the viewer's objects through Xray wrappers, which expose own
+	 * data properties but hide everything reached through the prototype — so
+	 * pdf.js's `page.view` getter reads as undefined rather than throwing, and
+	 * assigning one content object onto another is refused outright. Waiving the
+	 * Xray gives the same view of the object that the viewer's own code has.
+	 *
+	 * The waiver is sticky through property reads, but *not* across an await: a
+	 * value delivered by a content promise arrives wrapped afresh, so everything
+	 * awaited has to be waived again.
 	 */
+	waive(value) {
+		if (!value) return value;
+		let type = typeof value;
+		if (type !== 'object' && type !== 'function') return value;
+		try {
+			return Components.utils.waiveXrays(value);
+		}
+		catch (e) {
+			return value;
+		}
+	},
+
+	/** A plain-data value living in the viewer's compartment. */
 	contentData(win, value) {
 		try {
-			return win.JSON.parse(JSON.stringify(value));
+			return this.waive(Components.utils.cloneInto(value, win));
+		}
+		catch (e) {
+			// Fall through to the object builder below.
+		}
+		try {
+			return this.waive(win.JSON.parse(JSON.stringify(value)));
 		}
 		catch (e) {
 			return this.contentObj(win, value);
@@ -310,16 +336,17 @@ var CropToMargin = {
 
 	/** Every PDF view of a reader — primary plus the split pane, when open. */
 	getViews(reader) {
-		let internal = reader && reader._internalReader;
+		let internal = this.waive(reader && reader._internalReader);
 		if (!internal) return [];
-		return [internal._primaryView, internal._secondaryView].filter((view) => {
-			try {
-				return !!(view && view._iframeWindow && view._iframeWindow.PDFViewerApplication);
-			}
-			catch (e) {
-				return false;
-			}
-		});
+		return [this.waive(internal._primaryView), this.waive(internal._secondaryView)]
+			.filter((view) => {
+				try {
+					return !!(view && view._iframeWindow && view._iframeWindow.PDFViewerApplication);
+				}
+				catch (e) {
+					return false;
+				}
+			});
 	},
 
 	stateFor(reader) {
@@ -373,6 +400,7 @@ var CropToMargin = {
 		let deadline = Date.now() + timeoutMS;
 		let button = false;
 		let split = false;
+		let failures = 0;
 		while (Date.now() < deadline) {
 			if (!this.readers().includes(reader)) return;
 			try {
@@ -380,7 +408,9 @@ var CropToMargin = {
 				if (!split) split = this.watchSplit(reader);
 			}
 			catch (e) {
-				this.logError(e);
+				// Once, not on every turn of a poll that runs five times a second.
+				if (failures++ === 0) this.logError(e);
+				if (failures > 3) break;
 			}
 			if (button && split) {
 				this.log('adopted item ' + reader.itemID + ' (button + split watcher)');
@@ -724,8 +754,8 @@ var CropToMargin = {
 	 * @returns {Promise<Object|null>} Crop fractions of the *unrotated* page box.
 	 */
 	async computeCrop(view) {
-		let win = view._iframeWindow;
-		let pdf = win.PDFViewerApplication.pdfDocument;
+		let win = this.waive(view._iframeWindow);
+		let pdf = this.waive(win.PDFViewerApplication.pdfDocument);
 		let numPages = pdf.numPages;
 		if (!numPages) return null;
 
@@ -735,6 +765,7 @@ var CropToMargin = {
 			minInk: this.clamp(this.getPref('minInk'), 1, 64)
 		};
 		let indexes = this.pickPages(numPages, this.clamp(this.getPref('sampleCount'), 3, 64));
+		await this.probe(pdf);
 
 		let samples = [];
 		let failures = 0;
@@ -758,6 +789,31 @@ var CropToMargin = {
 			+ numPages + ' (' + failures + ' failed)');
 		if (samples.length < 2) return null;
 		return this.consensus(samples, numPages);
+	},
+
+	/**
+	 * Once per session, write down what this build of Zotero actually lets us do.
+	 * Reaching into the viewer is the fragile part of this plugin, and a line in
+	 * the log beats another round of guessing.
+	 */
+	async probe(pdf) {
+		if (this._probed) return;
+		this._probed = true;
+		let notes = [];
+		try {
+			let cu = typeof Components !== 'undefined' ? Components.utils : null;
+			notes.push('waiveXrays=' + (cu && typeof cu.waiveXrays));
+			notes.push('cloneInto=' + (cu && typeof cu.cloneInto));
+			notes.push('exportFunction=' + (cu && typeof cu.exportFunction));
+			let page = this.waive(await pdf.getPage(1));
+			notes.push('page.view=' + (page && page.view ? 'ok' : 'MISSING'));
+			notes.push('getViewport=' + (page && typeof page.getViewport));
+			notes.push('render=' + (page && typeof page.render));
+		}
+		catch (e) {
+			notes.push('threw: ' + (e && e.message ? e.message : e));
+		}
+		this.log('probe: ' + notes.join(' '));
 	},
 
 	/**
@@ -792,7 +848,9 @@ var CropToMargin = {
 	},
 
 	async measurePage(win, pdf, index, { renderWidth, threshold, minInk }) {
-		let page = await pdf.getPage(index + 1);
+		// Waived again: what a content promise resolves with arrives Xray-wrapped,
+		// and page.view is a prototype getter an Xray does not show.
+		let page = this.waive(await pdf.getPage(index + 1));
 		let canvas = null;
 		try {
 			let box = page.view;
@@ -802,25 +860,26 @@ var CropToMargin = {
 
 			// Measured unrotated; display rotation is applied when the crop is
 			// stamped onto the page elements.
-			let viewport = page.getViewport(this.contentObj(win, {
+			let viewport = this.waive(page.getViewport(this.contentObj(win, {
 				scale: renderWidth / pageWidth,
 				rotation: 0
-			}));
+			})));
 			let width = Math.max(1, Math.round(viewport.width));
 			let height = Math.max(1, Math.round(viewport.height));
 
-			canvas = win.document.createElement('canvas');
+			canvas = this.waive(win.document.createElement('canvas'));
 			canvas.width = width;
 			canvas.height = height;
-			let ctx = canvas.getContext('2d', this.contentData(win, {
+			let ctx = this.waive(canvas.getContext('2d', this.contentData(win, {
 				alpha: false,
 				willReadFrequently: true
-			}));
+			})));
 			ctx.fillStyle = '#ffffff';
 			ctx.fillRect(0, 0, width, height);
 			await page.render(this.contentObj(win, { canvasContext: ctx, viewport })).promise;
 
-			let ink = this.inkBox(ctx.getImageData(0, 0, width, height), threshold, minInk);
+			let ink = this.inkBox(this.waive(ctx.getImageData(0, 0, width, height)),
+				threshold, minInk);
 			if (!ink) return null;
 
 			return {
@@ -1381,10 +1440,10 @@ var CropToMargin = {
 		if (!entry || !entry.crop || entry.checked.has(index)) return;
 		entry.checked.add(index);
 
-		let win = view._iframeWindow;
-		let app = win.PDFViewerApplication;
-		let page = await app.pdfDocument.getPage(index + 1);
-		let content = await page.getTextContent();
+		let win = this.waive(view._iframeWindow);
+		let app = this.waive(win.PDFViewerApplication);
+		let page = this.waive(await app.pdfDocument.getPage(index + 1));
+		let content = this.waive(await page.getTextContent());
 		let items = content.items;
 		if (!items || !items.length) return;
 
