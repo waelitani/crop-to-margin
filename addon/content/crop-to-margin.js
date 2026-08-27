@@ -56,6 +56,7 @@ var CropToMargin = {
 	_prefPaneID: null,
 	_hooked: null,
 	_states: null,
+	_shuttingDown: false,
 
 	/* ---------------------------------------------------------------- setup */
 
@@ -73,14 +74,18 @@ var CropToMargin = {
 			this._l10n = null;
 		}
 
-		Zotero.Reader.registerEventListener('renderToolbar', this._onRenderToolbar, id);
-		Zotero.Reader.registerEventListener('createViewContextMenu', this._onViewContextMenu, id);
-
-		this._prefObserver = Zotero.Prefs.registerObserver(
-			this.PREF + 'enabled',
-			() => this._onEnabledChanged(),
-			true
-		);
+		try {
+			Zotero.Reader.registerEventListener('renderToolbar', this._onRenderToolbar, id);
+			Zotero.Reader.registerEventListener('createViewContextMenu', this._onViewContextMenu, id);
+			this._prefObserver = Zotero.Prefs.registerObserver(
+				this.PREF + 'enabled',
+				() => this._onEnabledChanged(),
+				true
+			);
+		}
+		catch (e) {
+			this.logError(e);
+		}
 
 		try {
 			this._prefPaneID = await Zotero.PreferencePanes.register({
@@ -97,13 +102,19 @@ var CropToMargin = {
 		}
 
 		// Readers that were already open when the plugin started.
-		for (let reader of this.readers()) {
-			this.hookReader(reader);
+		try {
+			for (let reader of this.readers()) {
+				this.hookReader(reader);
+			}
+		}
+		catch (e) {
+			this.logError(e);
 		}
 		this.log('initialized ' + version);
 	},
 
 	shutdown() {
+		this._shuttingDown = true;
 		// Zotero.Reader.unregisterEventListener() has an inverted filter and would
 		// drop every *other* plugin's listeners, so leave that cleanup to
 		// Zotero.Reader's own per-plugin shutdown observer. Same for the pref pane.
@@ -122,6 +133,21 @@ var CropToMargin = {
 			}
 			catch (e) {
 				this.logError(e);
+			}
+			// The click handler closed over this object, so a button left behind
+			// would keep re-enabling a plugin that is no longer there.
+			let state = this._states.get(reader);
+			if (!state) continue;
+			this.stopWatchingSplit(state);
+			if (state.button) {
+				try {
+					let section = state.button.closest('[data-ctm-section]');
+					(section || state.button).remove();
+				}
+				catch (e) {
+					// Reader document already torn down.
+				}
+				state.button = null;
 			}
 		}
 		this._hooked = new WeakSet();
@@ -205,6 +231,23 @@ var CropToMargin = {
 		return obj;
 	},
 
+	/**
+	 * A plain-data value living in the viewer's compartment.
+	 *
+	 * WebIDL callbacks from here work as they are — that is how a chrome click
+	 * listener on a content node works — but dictionary *arguments* do not: a
+	 * chrome object reaching content is opaque, and reading a member off it is
+	 * denied. Every options bag handed to the viewer has to be built there.
+	 */
+	contentData(win, value) {
+		try {
+			return win.JSON.parse(JSON.stringify(value));
+		}
+		catch (e) {
+			return this.contentObj(win, value);
+		}
+	},
+
 	/** A callable version of a chrome function for pdf.js's plain-JS event bus. */
 	exportFn(win, fn) {
 		try {
@@ -238,7 +281,15 @@ var CropToMargin = {
 	stateFor(reader) {
 		let state = this._states.get(reader);
 		if (!state) {
-			state = { active: false, busy: false, crop: null, views: new WeakMap(), button: null };
+			state = {
+				active: false,
+				busy: false,
+				crop: null,
+				views: new WeakMap(),
+				button: null,
+				splitObserver: null,
+				splitTimer: null
+			};
 			this._states.set(reader, state);
 		}
 		return state;
@@ -248,10 +299,135 @@ var CropToMargin = {
 		if (!reader || reader.type !== 'pdf') return;
 		if (this._hooked.has(reader)) return;
 		this._hooked.add(reader);
+		// The button and the split watcher go in whether or not cropping is on.
+		this.adoptReader(reader).catch(e => this.logError(e));
 		if (!this.getPref('enabled')) return;
 		this.waitForDocument(reader)
 			.then(ready => ready && this.enable(reader))
 			.catch(e => this.logError(e));
+	},
+
+	/**
+	 * Put the button in by hand, for a reader we were not there to greet.
+	 *
+	 * Zotero dispatches renderToolbar from a React effect with no dependency
+	 * array inside a component wrapped in memo() that is handed one constant
+	 * prop. React therefore bails out of every re-render after the first, and the
+	 * event fires exactly once per reader document — at mount. A reader already
+	 * open when the plugin started has spent that one dispatch, and would never
+	 * show a button until its tab was reopened.
+	 *
+	 * The same fact makes hand-injection safe: the effect's replaceChildren() is
+	 * what would wipe an injected node, and it never runs again either.
+	 */
+	async adoptReader(reader, timeoutMS = 60000) {
+		let deadline = Date.now() + timeoutMS;
+		let button = false;
+		let split = false;
+		while (Date.now() < deadline) {
+			if (!this.readers().includes(reader)) return;
+			try {
+				if (!button) button = this.ensureButton(reader);
+				if (!split) split = this.watchSplit(reader);
+			}
+			catch (e) {
+				this.logError(e);
+			}
+			if (button && split) return;
+			await this.delay(200);
+		}
+		this.trace('gave up adopting reader for item ' + reader.itemID);
+	},
+
+	ensureButton(reader) {
+		let win = reader._iframeWindow;
+		let doc = win && win.document;
+		if (!doc) return false;
+		// '.end .custom-sections' alone would also match the sidebar annotation
+		// header, which has an .end of its own.
+		let container = doc.querySelector('.toolbar .end .custom-sections')
+			|| doc.querySelector('.toolbar .custom-sections');
+		if (!container) return false;
+
+		let state = this.stateFor(reader);
+		let existing = container.querySelector('button[data-ctm-button]');
+		if (existing) {
+			// Zotero's own append() got there first.
+			state.button = existing;
+			this.syncButton(reader);
+			return true;
+		}
+		// Mirrors the wrapper Zotero's append() puts around plugin content.
+		let section = doc.createElement('div');
+		section.className = 'section';
+		section.setAttribute('data-ctm-section', '1');
+		section.appendChild(this.buildButton(doc, reader, state));
+		container.appendChild(section);
+		return true;
+	},
+
+	/**
+	 * Notice a split pane opening. Nothing else tells us: renderToolbar fires once
+	 * and Zotero exposes no event for the second view.
+	 */
+	watchSplit(reader) {
+		let state = this.stateFor(reader);
+		if (state.splitObserver) return true;
+		let win = reader._iframeWindow;
+		let doc = win && win.document;
+		if (!doc || !doc.body) return false;
+		let host = doc.getElementById('secondary-view');
+		if (!host) return false;
+
+		let sync = () => {
+			if (this._shuttingDown || !state.active || !state.crop) return;
+			for (let view of this.getViews(reader)) {
+				if (!state.views.has(view)) this.attachView(state, view, state.crop);
+			}
+		};
+		let onMutate = () => {
+			if (state.splitTimer) clearTimeout(state.splitTimer);
+			// The new pane's viewer loads asynchronously; getViews() skips it until
+			// it is ready and the next mutation brings us back.
+			state.splitTimer = setTimeout(() => {
+				state.splitTimer = null;
+				try {
+					sync();
+				}
+				catch (e) {
+					this.logError(e);
+				}
+			}, 400);
+		};
+		let observer = new win.MutationObserver(onMutate);
+		observer.observe(host, this.contentData(win, { childList: true }));
+		observer.observe(doc.body, this.contentData(win, {
+			attributes: true,
+			attributeFilter: ['class']
+		}));
+		state.splitObserver = observer;
+		return true;
+	},
+
+	stopWatchingSplit(state) {
+		if (state.splitTimer) {
+			try {
+				clearTimeout(state.splitTimer);
+			}
+			catch (e) {
+				// Already gone.
+			}
+			state.splitTimer = null;
+		}
+		if (state.splitObserver) {
+			try {
+				state.splitObserver.disconnect();
+			}
+			catch (e) {
+				// Document already torn down.
+			}
+			state.splitObserver = null;
+		}
 	},
 
 	/** Resolves once the primary view has a loaded PDF document and settled. */
@@ -295,31 +471,27 @@ var CropToMargin = {
 	renderToolbar(event) {
 		let { reader, doc, append } = event;
 		if (!reader || reader.type !== 'pdf') return;
-
 		this.hookReader(reader);
-		let state = this.stateFor(reader);
+		append(this.buildButton(doc, reader, this.stateFor(reader)));
+	},
 
-		// A split pane can appear after the crop was applied; this event fires on
-		// every toolbar render, so it is the cheapest place to catch it up.
-		if (state.active && state.crop) {
-			for (let view of this.getViews(reader)) {
-				if (!state.views.has(view)) this.attachView(state, view, state.crop);
-			}
-		}
-
+	/** The button itself. Built the same way whichever route put it on screen. */
+	buildButton(doc, reader, state) {
 		let button = doc.createElement('button');
 		button.className = 'toolbar-button' + (state.active ? ' active' : '');
 		button.setAttribute('tabindex', '-1');
+		// Lets the two routes into the toolbar recognise each other's work.
+		button.setAttribute('data-ctm-button', '1');
 		button.setAttribute('aria-pressed', state.active ? 'true' : 'false');
 		button.title = this.buttonTitle(state);
 		if (state.busy) button.setAttribute('disabled', 'true');
 		button.appendChild(this.createIcon(doc));
 		button.addEventListener('click', () => {
+			if (this._shuttingDown) return;
 			this.toggle(reader).catch(e => this.logError(e));
 		});
-
 		state.button = button;
-		append(button);
+		return button;
 	},
 
 	buttonTitle(state) {
@@ -389,9 +561,14 @@ var CropToMargin = {
 	 */
 	async toggle(reader) {
 		let state = this.stateFor(reader);
-		if (state.busy) return;
+		if (state.busy || this._shuttingDown) return;
 		let next = !state.active;
-		if (this.getPref('enabled') !== next) this.setPref('enabled', next);
+		if (this.getPref('enabled') !== next) {
+			// The pref observer applies this to every open reader, including this
+			// one. Doing it here as well would crop the document twice.
+			this.setPref('enabled', next);
+			return;
+		}
 		if (next) await this.enable(reader);
 		else this.disable(reader);
 	},
@@ -442,10 +619,18 @@ var CropToMargin = {
 			}
 
 			state.crop = crop;
-			state.active = true;
+			let attached = 0;
 			for (let view of this.getViews(reader)) {
-				this.attachView(state, view, crop);
+				try {
+					this.attachView(state, view, crop);
+					attached++;
+				}
+				catch (e) {
+					this.logError(e);
+				}
 			}
+			// Only claim to be on if something actually is.
+			state.active = attached > 0;
 		}
 		finally {
 			state.busy = false;
@@ -558,7 +743,10 @@ var CropToMargin = {
 			canvas = win.document.createElement('canvas');
 			canvas.width = width;
 			canvas.height = height;
-			let ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true });
+			let ctx = canvas.getContext('2d', this.contentData(win, {
+				alpha: false,
+				willReadFrequently: true
+			}));
 			ctx.fillStyle = '#ffffff';
 			ctx.fillRect(0, 0, width, height);
 			await page.render(this.contentObj(win, { canvasContext: ctx, viewport })).promise;
@@ -787,7 +975,6 @@ var CropToMargin = {
 			odd: { l: horizontal.odd.l, r: horizontal.odd.r, t: vertical[0], b: vertical[1] },
 			even: { l: horizontal.even.l, r: horizontal.even.r, t: vertical[0], b: vertical[1] }
 		};
-		crop.trivial = (crop.odd.l + crop.odd.r) < 0.01 && (crop.odd.t + crop.odd.b) < 0.01;
 		return crop;
 	},
 
@@ -910,6 +1097,7 @@ var CropToMargin = {
 				busEvents: [],
 				domEvents: [],
 				resizeObserver: null,
+				stampObserver: null,
 				pending: null,
 				checked: new Set(),
 				pageBoxes: new Map()
@@ -945,27 +1133,45 @@ var CropToMargin = {
 				spreadmodechanged: () => this.reapply(state, view),
 				scrollmodechanged: () => this.reapply(state, view)
 			};
-			for (let name of Object.keys(handlers)) {
+			let wanted = Object.keys(handlers);
+			for (let name of wanted) {
 				let exported = this.exportFn(win, handlers[name]);
-				if (!exported) break;
+				if (!exported) continue;
 				app.eventBus.on(name, exported);
 				entry.busEvents.push([name, exported]);
 			}
-		}
-		if (!entry.domEvents.length) {
-			// DOM listeners work from chrome without being exported, and cover the
-			// cases the event bus would have covered if exportFunction were missing.
-			let container = doc.getElementById('viewerContainer');
-			let onResize = () => this.onViewportResize(state, view);
-			let onSettle = () => this.scheduleFitClass(state, view);
-			win.addEventListener('resize', onResize);
-			entry.domEvents.push([win, 'resize', onResize]);
-			if (container) {
-				for (let name of ['wheel', 'scroll']) {
-					container.addEventListener(name, onSettle, { passive: true });
-					entry.domEvents.push([container, name, onSettle]);
+			if (entry.busEvents.length < wanted.length && !entry.stampObserver) {
+				// Without the bus we would never hear about a page being rendered, and
+				// pages drawn later would show up uncropped under a cropped zoom.
+				try {
+					entry.stampObserver = new win.MutationObserver(() => this.stampAll(state, view));
+					entry.stampObserver.observe(viewerEl, this.contentData(win, { childList: true }));
+				}
+				catch (e) {
+					this.trace('no MutationObserver fallback in the viewer: ' + e);
 				}
 			}
+		}
+		try {
+			if (!entry.domEvents.length) {
+				// DOM listeners need no exporting, and carry the re-fit and the
+				// settle-work whether or not the event bus could be reached.
+				let container = doc.getElementById('viewerContainer');
+				let onResize = () => this.onViewportResize(state, view);
+				let onSettle = () => this.scheduleFitClass(state, view);
+				win.addEventListener('resize', onResize);
+				entry.domEvents.push([win, 'resize', onResize]);
+				if (container) {
+					for (let name of ['wheel', 'scroll']) {
+						container.addEventListener(name, onSettle, this.contentData(win, { passive: true }));
+						entry.domEvents.push([container, name, onSettle]);
+					}
+				}
+			}
+		}
+		catch (e) {
+			// A missing listener must not cost us the fit below.
+			this.logError(e);
 		}
 		if (!entry.resizeObserver) {
 			// The pane can change width without the window resizing — a collapsing
@@ -1010,6 +1216,7 @@ var CropToMargin = {
 				target.removeEventListener(name, handler);
 			}
 			if (entry.resizeObserver) entry.resizeObserver.disconnect();
+			if (entry.stampObserver) entry.stampObserver.disconnect();
 			if (entry.previousScrollMode !== null) {
 				try {
 					view.setScrollMode(entry.previousScrollMode);

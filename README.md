@@ -163,6 +163,10 @@ reinstalling: create a file named after the plugin ID in your Zotero profile's
 ## Known limits
 
 - Only PDFs. EPUB and snapshot readers are left alone.
+- Zotero dispatches its toolbar hook once per reader document, so the button is
+  injected by hand into readers that were already open when the plugin started.
+  If a future Zotero re-renders that component, the injected node would be
+  cleared; the event path would then put it back.
 - Jumping to a page lands on the top of the *uncropped* page, so the text starts
   a little below the top of the pane. pdf.js measures from the page's real box.
 - A page whose ink genuinely runs to the paper's edge — a full-bleed plate, a

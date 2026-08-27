@@ -97,8 +97,13 @@ test('a document with no margins is left alone', () => {
 		l: 0, r: 0, t: 0, b: 0
 	}));
 	let crop = plugin.consensus(fullBleed, 12);
-	assert.equal(crop.trivial, true);
-	assert.equal(crop.odd.l, 0);
+	// Nothing to take off any side, so the page is left exactly as it is.
+	for (let parity of ['odd', 'even']) {
+		for (let side of ['l', 'r', 't', 'b']) {
+			assert.equal(crop[parity][side], 0, `${parity}.${side}`);
+		}
+	}
+	assert.equal(crop.mirrored, false);
 });
 
 test('samples alternate recto and verso', () => {
