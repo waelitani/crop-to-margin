@@ -13,6 +13,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "check": "node --check addon/bootstrap.js && node --check addon/content/crop-to-margin.js && node --check addon/content/preferences.js",
-    "test": "node --test test/consensus.test.mjs"
+    "test": "node --test test/consensus.test.mjs",
+    "verify": "node scripts/verify-release.mjs"
   }
 }

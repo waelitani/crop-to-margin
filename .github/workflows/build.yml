@@ -43,3 +43,11 @@ jobs:
         with:
           files: build/*.xpi
           generate_release_notes: true
+
+      # Last, and after the release exists, because it is the only step that
+      # asks whether the outside world agrees with what we just committed.
+      # Skipped on pull requests, where a version bump legitimately arrives
+      # before the release it names.
+      - name: Check the advertised release can actually be downloaded
+        if: github.event_name == 'push'
+        run: npm run verify
