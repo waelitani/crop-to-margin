@@ -22,8 +22,16 @@ on the same book is 1.11×. See [Settings](#settings).
 
 ## Install
 
-Download the `.xpi` from the [latest release][releases], then in Zotero:
+**[Download crop-to-margin.xpi][download]**, then in Zotero:
 **Tools → Plugins → ⚙ → Install Add-on From File…**
+
+That link always resolves to the newest release. If your browser offers to open
+or install the file instead of saving it, use right-click → *Save link as…* — a
+`.xpi` is a ZIP, and some browsers helpfully rename it to `.zip`, which Zotero
+will then refuse. Rename it back if that happens.
+
+Once installed, Zotero checks [`update.json`][update] for new versions and
+upgrades in place, so this is a one-time step.
 
 Or build it yourself:
 
@@ -33,7 +41,9 @@ npm run build      # → build/crop-to-margin-<version>.xpi
 
 Requires Zotero 7 or later. Developed against Zotero 9.0.6 (pdf.js 5.4.0).
 
+[download]: https://github.com/waelitani/crop-to-margin/releases/latest/download/crop-to-margin.xpi
 [releases]: https://github.com/waelitani/crop-to-margin/releases
+[update]: https://github.com/waelitani/crop-to-margin/blob/main/update.json
 
 ## Use
 
@@ -177,6 +187,24 @@ One trap worth knowing if you fork this: load plugin subscripts with
 `loadSubScriptWithOptions(..., { ignoreCache: true })`. The subscript loader
 caches by URL, the URL is the plugin ID, and without it an upgraded plugin
 silently keeps running the version loaded first that session.
+
+### Releasing
+
+Bump `version` in `addon/manifest.json` and `package.json`, then:
+
+```sh
+npm run build                      # rebuilds the .xpi and rewrites update.json
+git commit -am "Release v0.1.8"
+git tag v0.1.8
+git push origin main --follow-tags
+```
+
+The tag build re-runs the checks and refuses to publish if the committed
+`update.json` no longer matches the bytes it just built — the packer is
+deterministic, so that comparison is meaningful rather than decorative. It then
+attaches both `.xpi` names to [Releases][releases]: the versioned one that
+`update.json` pins by `sha256` for Zotero's updater, and `crop-to-margin.xpi`,
+which is what the install link at the top of this file resolves to.
 
 ```
 ├── addon/                     what gets packed into the .xpi

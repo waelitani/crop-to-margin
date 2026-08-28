@@ -118,9 +118,16 @@ rmSync(OUTPUT, { recursive: true, force: true });
 mkdirSync(OUTPUT, { recursive: true });
 
 let xpiName = `crop-to-margin-${version}.xpi`;
-let xpiPath = join(OUTPUT, xpiName);
 let archive = zip(entries);
-writeFileSync(xpiPath, archive);
+writeFileSync(join(OUTPUT, xpiName), archive);
+
+// The same bytes again under a name that never changes. Two assets on a release
+// look redundant, and the redundancy is the point: update.json below pins the
+// VERSIONED url plus a hash, so Zotero can never be handed a build its hash was
+// not computed from, while `releases/latest/download/crop-to-margin.xpi` gives a
+// human a link that survives every future release. One url cannot be both.
+let stableName = 'crop-to-margin.xpi';
+writeFileSync(join(OUTPUT, stableName), archive);
 
 let hash = createHash('sha256').update(archive).digest('hex');
 writeFileSync(join(ROOT, 'update.json'), JSON.stringify({
@@ -141,5 +148,5 @@ writeFileSync(join(ROOT, 'update.json'), JSON.stringify({
 	}
 }, null, '\t') + '\n');
 
-console.log(`${xpiName}  ${entries.length} files  ${(archive.length / 1024).toFixed(1)} KiB`);
+console.log(`${xpiName}  (+ ${stableName})  ${entries.length} files  ${(archive.length / 1024).toFixed(1)} KiB`);
 console.log(`sha256:${hash}`);
