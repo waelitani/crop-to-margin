@@ -3,9 +3,9 @@
 		"crop-to-margin@waelitani.github.io": {
 			"updates": [
 				{
-					"version": "0.1.7",
-					"update_link": "https://github.com/waelitani/crop-to-margin/releases/download/v0.1.7/crop-to-margin-0.1.7.xpi",
-					"update_hash": "sha256:12726a68341a1bdd8a207e5e11e16e13a2e037f97da388c651dee049f199fd32",
+					"version": "0.1.8",
+					"update_link": "https://github.com/waelitani/crop-to-margin/releases/download/v0.1.8/crop-to-margin-0.1.8.xpi",
+					"update_hash": "sha256:74dc6374e9978e8766ad50c00c57c0d8bbc557d5c326b5b68a26875d3b3cb6ba",
 					"applications": {
 						"zotero": {
 							"strict_min_version": "7.0",

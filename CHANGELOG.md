@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8] — 2026-08-28
+
+### Fixed
+- **A tab could collect two or three crop icons.** `renderToolbar` appended a
+  button every time Zotero dispatched it, on the assumption — written into the
+  code as a comment — that it fires exactly once per reader document. A toolbar
+  that re-mounts dispatches again, and another plugin rearranging the reader
+  layout is enough to cause one. The tell was that a tab already open when the
+  plugin started showed a single icon: that one is hand-injected and never
+  dispatched to. Both routes into the toolbar now clear any crop button they
+  find before adding their own.
+- Buttons left behind by the previous version after an upgrade are now replaced
+  rather than adopted. Their click handlers close over a `CropToMargin` that
+  `shutdown()` has already retired, so an adopted one looked fine and did
+  nothing.
+- `ensureButton` searched one container for an existing button while the other
+  route resolved its container separately — a button it could not see was a
+  button it would duplicate. It now looks at the whole document.
+
+### Changed
+- A release now carries the `.xpi` under two names: the versioned one that
+  `update.json` pins by `sha256`, and a constant `crop-to-margin.xpi`, so
+  `releases/latest/download/crop-to-margin.xpi` is a link that never goes stale.
+
 ## [0.1.7] — 2026-08-27
 
 ### Changed

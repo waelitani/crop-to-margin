@@ -433,12 +433,17 @@ var CropToMargin = {
 		if (!container) return false;
 
 		let state = this.stateFor(reader);
-		let existing = container.querySelector('button[data-ctm-button]');
-		if (existing) {
-			// Zotero's own append() got there first.
-			state.button = existing;
-			this.syncButton(reader);
-			return true;
+		// Clear the field rather than adopt what is already there, and search the
+		// whole document rather than this one container — the two routes in
+		// resolve the container separately, so a button we cannot see is a button
+		// we would duplicate. Adopting looks cheaper and is the wrong trade: after
+		// an upgrade the buttons still hanging in an open reader belong to the
+		// generation shutdown() just retired, and clicking one calls into a
+		// CropToMargin that is no longer there. Cheaper to rebuild than to reason
+		// about which of them is still wired to anything.
+		let stale = this.dropButtons(doc);
+		if (stale) {
+			this.log('replaced ' + stale + ' stale button(s) on item ' + reader.itemID);
 		}
 		// Mirrors the wrapper Zotero's append() puts around plugin content.
 		let section = doc.createElement('div');
@@ -558,7 +563,39 @@ var CropToMargin = {
 		let { reader, doc, append } = event;
 		if (!reader || reader.type !== 'pdf') return;
 		this.hookReader(reader);
+		// Not once per document, whatever the effect's dependencies imply: a
+		// toolbar that re-mounts dispatches again, and Focused Mode rearranging
+		// the layout is enough to cause one. Appending unconditionally is how a
+		// tab collects a second and third crop icon while the tab that was
+		// already open when the plugin started — hand-injected, never dispatched
+		// to — keeps showing exactly one.
+		this.dropButtons(doc);
 		append(this.buildButton(doc, reader, this.stateFor(reader)));
+	},
+
+	/**
+	 * Take out every crop button in a toolbar, and report how many there were.
+	 *
+	 * Only nodes this plugin made: the button, plus the section wrapper if we
+	 * were the one who built it. A button left by an earlier generation of the
+	 * plugin is worse than a duplicate — its click handler closes over a
+	 * CropToMargin that shutdown() has already set aside — so the newest route
+	 * into the toolbar always clears the field before adding its own.
+	 */
+	dropButtons(doc) {
+		let buttons;
+		try {
+			buttons = doc && doc.querySelectorAll('button[data-ctm-button]');
+		}
+		catch (e) {
+			return 0;   // torn-down document
+		}
+		if (!buttons || !buttons.length) return 0;
+		for (let button of buttons) {
+			let section = button.closest('[data-ctm-section]');
+			(section || button).remove();
+		}
+		return buttons.length;
 	},
 
 	/** The button itself. Built the same way whichever route put it on screen. */
