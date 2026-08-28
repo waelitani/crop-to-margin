@@ -1,8 +1,8 @@
 {
   "name": "crop-to-margin",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "private": true,
-  "description": "Zotero plugin that zooms past a PDF's white margins so the text block fills the reader",
+  "description": "Zotero plugin that zooms past a PDF's white margins so the text block fills the reader, refitting whenever the pane resizes",
   "license": "MIT",
   "author": "Wael Itani",
   "repository": {

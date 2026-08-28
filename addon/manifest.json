@@ -1,8 +1,8 @@
 {
 	"manifest_version": 2,
 	"name": "Crop to Margin",
-	"version": "0.1.8",
-	"description": "Zoom past a PDF's white margins so the text block fills the Zotero reader.",
+	"version": "0.1.9",
+	"description": "Zoom past a PDF's white margins so the text block fills the Zotero reader. Refits whenever the pane resizes: sidebars, split view, Focused Mode.",
 	"homepage_url": "https://github.com/waelitani/crop-to-margin",
 	"author": "Wael Itani",
 	"icons": {

@@ -41,6 +41,7 @@ npm run build      # → build/crop-to-margin-<version>.xpi
 
 Requires Zotero 7 or later. Developed against Zotero 9.0.6 (pdf.js 5.4.0).
 
+[focused]: https://github.com/dschaehi/Zotero-Focused-Mode
 [download]: https://github.com/waelitani/crop-to-margin/releases/latest/download/crop-to-margin.xpi
 [releases]: https://github.com/waelitani/crop-to-margin/releases
 [update]: https://github.com/waelitani/crop-to-margin/blob/main/update.json
@@ -54,6 +55,10 @@ A crop button appears in the PDF reader's toolbar, next to the search icon.
   next PDF you open is cropped as it loads, with no flash of uncropped page,
   because each document's crop is measured once and remembered.
 - **Click it again** to turn cropping off, for this PDF and the next.
+- **It follows the pane.** Collapse a sidebar, open a split view, resize the
+  window, or hand the reader the whole screen with [Zotero Focused Mode][focused]
+  — the crop refits to the space it just gained. The measuring is done once per
+  document; only the scale is recomputed, so there is no flicker and no re-scan.
 
 Right-clicking the page gives you the same toggle plus **Recalculate crop**, for
 when a file has been replaced or you have changed the settings.

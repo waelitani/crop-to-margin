@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.9] — 2026-08-28
+
+### Changed
+- Says out loud that the crop refits when the reader's pane changes size —
+  sidebars, split view, or Focused Mode handing it the whole window. The
+  behaviour has worked since 0.1.5; nothing documented it, which made it
+  invisible to the people who benefit most from it.
+
 ## [0.1.8] — 2026-08-28
 
 ### Fixed
