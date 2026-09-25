@@ -39,7 +39,8 @@ Or build it yourself:
 npm run build      # → build/crop-to-margin-<version>.xpi
 ```
 
-Requires Zotero 7 or later. Developed against Zotero 9.0.6 (pdf.js 5.4.0).
+Requires Zotero 7 or later. Developed against Zotero 9.0.6 (pdf.js 5.4.0) and
+verified against Zotero 10.0.3 (pdf.js 5.7.0).
 
 [focused]: https://github.com/dschaehi/Zotero-Focused-Mode
 [download]: https://github.com/waelitani/crop-to-margin/releases/latest/download/crop-to-margin.xpi

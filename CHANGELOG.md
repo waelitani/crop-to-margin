@@ -4,6 +4,27 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.10] — 2026-09-25
+
+### Fixed
+- **"Crop to Margin is incompatible with Zotero 10.0.3."** Nothing was: the
+  manifest declared `strict_max_version: "9.*"`, so Zotero refused to load a
+  plugin that works. Raised to `11.*`.
+
+  A ceiling is a promise about code you have not seen, and the two ways of being
+  wrong are not symmetric. Too high and a future Zotero loads a plugin whose
+  crop silently does nothing, which one click undoes. Too low and nobody can
+  install it at all, which is where this ended up. So the ceiling is now wide
+  enough to survive a major release, rather than tight enough to be accurate.
+
+  Everything the plugin reaches into was checked against the shipped Zotero 10
+  rather than assumed: `registerEventListener`, `renderToolbar`,
+  `createViewContextMenu`, `_iframeWindow` and `PreferencePanes.register` are
+  unchanged, and so is every pdf.js internal the crop depends on —
+  `--total-scale-factor`, `rawDims`, `SCROLLBAR_PADDING` (40), `VERTICAL_PADDING`
+  (5), `ScrollMode.PAGE` (3) and `SpreadMode.EVEN` (2) — across pdf.js 5.4.0 →
+  5.7.0.
+
 ## [0.1.9] — 2026-08-28
 
 ### Changed
